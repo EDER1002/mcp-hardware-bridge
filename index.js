@@ -164,7 +164,8 @@ async function runHardwareDiagnostics({ port, baudRate = 115200, sampleMs = 3000
     sampleDurationMs: sampleMs,
     totalLines: lines.length,
     sensors: {
-      vl53l0x: null,    // distance mm
+      vl53l0x: null,    // primera lectura (compatibilidad)
+      vl53l0xAll: {},   // todas las lecturas indexadas por etiqueta [L30/C0/...]
       qtr1a: null,      // reflectance 0-1023
       tb6612fng: null,  // motor status
     },
@@ -173,10 +174,15 @@ async function runHardwareDiagnostics({ port, baudRate = 115200, sampleMs = 3000
 
   // Patrones esperados (ajustar según firmware real)
   for (const { data } of lines) {
-    // VL53L0X: "VL53L0X: distance=123mm" o "DIST:123"
-    const vlMatch = data.match(/(?:VL53L0X|DIST)[\s:=]+(\d+)/i);
-    if (vlMatch && !diagnostics.sensors.vl53l0x) {
-      diagnostics.sensors.vl53l0x = { distance_mm: parseInt(vlMatch[1], 10), raw: data };
+    // VL53L0X: "VL53L0X[L30]: distance=123mm", "VL53L0X: 123mm" o "DIST:123"
+    const vlMatch = data.match(/(?:VL53L0X|DIST)(?:\[([^\]]+)\])?[\s:=]*(?:distance\s*=\s*)?(\d+)/i);
+    if (vlMatch) {
+      const label = vlMatch[1] || "sin_etiqueta";
+      const value = parseInt(vlMatch[2], 10);
+      diagnostics.sensors.vl53l0xAll[label] = { distance_mm: value, raw: data };
+      if (!diagnostics.sensors.vl53l0x) {
+        diagnostics.sensors.vl53l0x = { label, distance_mm: value, raw: data };
+      }
     }
 
     // QTR-1A: "QTR:456" o "REFLECT:456"
