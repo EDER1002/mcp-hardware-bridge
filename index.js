@@ -20,6 +20,7 @@ import { tmpdir } from "os";
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
 import { listSerialPorts, identifyArduinoPorts, pickBestPort, formatPortInfo } from "./lib/port-discovery.js";
+import { parseSerialSample } from "./lib/serial-parser.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ARDUINO_CLI = "/home/eder/.local/bin/arduino-cli";
@@ -156,63 +157,17 @@ async function runHardwareDiagnostics({ port, baudRate = 115200, sampleMs = 3000
   // 1. Leer muestra serial
   const { lines } = await serialDataStream({ port: targetPort, baudRate, durationMs: sampleMs });
 
-  // 2. Parsear heurísticamente sensores conocidos
-  const diagnostics = {
+  // 2. Parsear heurísticamente sensores conocidos (lógica pura en lib/serial-parser.js)
+  const parsed = parseSerialSample(lines);
+
+  // 3. Metadatos de la sesión + resumen de salud (ya incluidos en parsed)
+  return {
     timestamp: new Date().toISOString(),
     port: targetPort,
     baudRate,
     sampleDurationMs: sampleMs,
-    totalLines: lines.length,
-    sensors: {
-      vl53l0x: null,    // primera lectura (compatibilidad)
-      vl53l0xAll: {},   // todas las lecturas indexadas por etiqueta [L30/C0/...]
-      qtr1a: null,      // reflectance 0-1023
-      tb6612fng: null,  // motor status
-    },
-    rawSample: lines.slice(0, 20), // primeras 20 líneas para contexto
+    ...parsed,
   };
-
-  // Patrones esperados (ajustar según firmware real)
-  for (const { data } of lines) {
-    // VL53L0X: "VL53L0X[L30]: distance=123mm", "VL53L0X: 123mm" o "DIST:123"
-    const vlMatch = data.match(/(?:VL53L0X|DIST)(?:\[([^\]]+)\])?[\s:=]*(?:distance\s*=\s*)?(\d+)/i);
-    if (vlMatch) {
-      const label = vlMatch[1] || "sin_etiqueta";
-      const value = parseInt(vlMatch[2], 10);
-      diagnostics.sensors.vl53l0xAll[label] = { distance_mm: value, raw: data };
-      if (!diagnostics.sensors.vl53l0x) {
-        diagnostics.sensors.vl53l0x = { label, distance_mm: value, raw: data };
-      }
-    }
-
-    // QTR-1A: "QTR:456" o "REFLECT:456"
-    const qtrMatch = data.match(/(?:QTR|REFLECT)[\s:=]+(\d+)/i);
-    if (qtrMatch && !diagnostics.sensors.qtr1a) {
-      diagnostics.sensors.qtr1a = { reflectance: parseInt(qtrMatch[1], 10), raw: data };
-    }
-
-    // TB6612FNG: "TB6612: STBY=1 PWMA=200 PWMB=150"
-    const motorMatch = data.match(/(?:TB6612)[\s:=]+(.+)/i);
-    if (motorMatch && !diagnostics.sensors.tb6612fng) {
-      diagnostics.sensors.tb6612fng = { status: motorMatch[1].trim(), raw: data };
-    }
-  }
-
-  // 3. Resumen de salud
-  const health = [];
-  if (diagnostics.sensors.vl53l0x) health.push("VL53L0X ✓");
-  else health.push("VL53L0X ✗ (no data)");
-
-  if (diagnostics.sensors.qtr1a) health.push("QTR-1A ✓");
-  else health.push("QTR-1A ✗ (no data)");
-
-  if (diagnostics.sensors.tb6612fng) health.push("TB6612FNG ✓");
-  else health.push("TB6612FNG ✗ (no data)");
-
-  diagnostics.healthSummary = health.join(" | ");
-  diagnostics.healthy = diagnostics.sensors.vl53l0x && diagnostics.sensors.qtr1a && diagnostics.sensors.tb6612fng;
-
-  return diagnostics;
 }
 
 // ============================================================

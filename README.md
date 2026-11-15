@@ -124,9 +124,20 @@ Hardware Bridge & Monitor/
 # Modo watch (reinicia en cambios)
 npm run dev
 
-# Lint / formato (si añades eslint/prettier)
-npm run lint
+# Pruebas del parser serial (sin hardware, node:test)
+npm test
 ```
+
+### Verificación estática de un firmware (.ino)
+
+Comprueba sin placa el mapa de pines (Tabla 4 del informe Kraken) e invariantes de seguridad
+(motores apagados al encender, cuenta de 5 s, escape con prioridad, watchdog, EWMA, etc.):
+
+```bash
+node scripts/verify-firmware.mjs /ruta/a/Kraken_v3_2_FINAL.ino
+```
+
+Salida: un `PASS`/`FAIL` por chequeo; `exit 1` si alguno falla. No sustituye una prueba física.
 
 ---
 
